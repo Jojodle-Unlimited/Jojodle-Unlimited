@@ -23,7 +23,12 @@ main{max-width:1100px;margin:0 auto;padding:0 16px 48px}
 button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:8px;padding:8px 14px}
 button:hover{border-color:var(--accent)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
-label.tog{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.9rem;cursor:pointer;user-select:none}
+.parts{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:center}
+.parts-label{display:none;color:var(--muted);font-size:.9rem;margin-right:2px}
+.ptog{padding:6px 12px;font-size:.85rem;color:var(--muted);background:var(--panel)}
+.ptog[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.parts-note{text-align:center;color:var(--gold);font-size:.82rem;margin-top:8px}
+.parts-note:empty{display:none}
 .stats{display:flex;gap:16px;justify-content:center;color:var(--muted);font-size:.9rem;flex-wrap:wrap}
 .stats b{color:var(--text)}
 .searchwrap{position:relative;max-width:520px;margin:12px auto}
@@ -80,7 +85,7 @@ label.tog{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.
 .dist i{display:block;height:14px;background:var(--panel2);border-radius:3px;min-width:4px;font-style:normal;text-align:right;padding-right:4px;font-size:.72rem;line-height:14px}
 .dist i.cur{background:var(--accent)}
 footer{text-align:center;color:var(--muted);font-size:.75rem;padding:20px}
-@media (max-width:600px){h1{font-size:1.7rem}.cell{min-height:76px;font-size:.72rem}}
+@media (max-width:600px){h1{font-size:1.7rem}.cell{min-height:76px;font-size:.72rem}.pword{display:none}.parts-label{display:inline}}
 </style>
 </head>
 <body>
@@ -93,9 +98,9 @@ footer{text-align:center;color:var(--muted);font-size:.75rem;padding:20px}
   <div class="bar">
     <button class="primary" id="newBtn">New game</button>
     <button id="giveBtn">Give up</button>
-    <label class="tog"><input type="checkbox" id="p12"> Include Parts 1 &amp; 2</label>
-    <label class="tog"><input type="checkbox" id="p7"> Include Part 7</label>
   </div>
+  <div class="parts" id="parts" role="group" aria-label="Parts in play"><span class="parts-label">Parts</span></div>
+  <div class="parts-note" id="partsNote" aria-live="polite"></div>
 
   <div class="searchwrap">
     <div class="searchrow">
@@ -136,17 +141,30 @@ const store = {
   set(k, v){ try{ localStorage.setItem("jju:"+k, JSON.stringify(v)); }catch(e){} }
 };
 let stats = store.get("stats", {played:0, wins:0, streak:0, best:0, dist:{}});
-let includeP12 = store.get("p12", false);
-let includeP7 = store.get("p7", true);
+const PARTS = [...new Set(CHARS.map(c => c.part))].sort((a, b) => a - b);
+function loadParts(){
+  const saved = store.get("parts", null);
+  if (Array.isArray(saved)){
+    const valid = saved.filter(p => PARTS.includes(p));
+    if (valid.length) return new Set(valid);
+  }
+  // older versions saved separate "Parts 1 & 2" and "Part 7" switches
+  const s = new Set(PARTS.filter(p => !["1", "2", "7"].includes(p)));
+  if (store.get("p12", false)){ s.add("1"); s.add("2"); }
+  if (store.get("p7", true)) s.add("7");
+  return s;
+}
+let parts = loadParts();
 let mode = "user";
 let secret = null, guesses = [], over = false, hintAbility = null, bannerTimer = null;
-let gamePool = []; // characters in play this game; the part toggles only change the next game's pool
+let gamePool = [], gameParts = ""; // what's in play this game; the part toggles only change the next game's pool
 
 // ---------- helpers ----------
 const norm = s => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const side = c => c.ally === true ? "Ally" : c.ally === false ? "Enemy" : "Neutral";
-const pool = () => CHARS.filter(c => (includeP12 || !["1","2"].includes(c.part)) && (includeP7 || c.part !== "7"));
+const pool = () => CHARS.filter(c => parts.has(c.part));
+const partsKey = () => [...parts].sort((a, b) => a - b).join(",");
 const byId = id => CHARS.find(c => c.id === id);
 const STOP = new Set(["and","of","the","from","in","to","a","an","on","with","for","by"]);
 const words = s => norm(s).split(" ").filter(w => w && !STOP.has(w));
@@ -247,8 +265,9 @@ function finish(won){
 }
 
 // ---------- game flow ----------
-function newGame(){
+function newGame(focusSearch = true){
   const p = gamePool = pool();
+  gameParts = partsKey();
   let next;
   do { next = p[Math.floor(Math.random() * p.length)]; } while (p.length > 1 && secret && next.id === secret.id);
   secret = next; guesses = []; over = false;
@@ -259,8 +278,8 @@ function newGame(){
   $("q").disabled = false; $("q").value = "";
   $("giveBtn").disabled = false;
   $("dd").disabled = false;
-  closeList(); renderHint(); renderStats();
-  $("q").focus();
+  closeList(); renderHint(); renderStats(); renderParts();
+  if (focusSearch) $("q").focus();
 }
 
 function guess(id){
@@ -355,10 +374,25 @@ $("mUser").onclick = () => setMode("user");
 $("mStand").onclick = () => setMode("stand");
 $("newBtn").onclick = () => { if (!over && guesses.length && !confirm("Abandon this game? It will count as a loss.")) return; if (!over && guesses.length) finish(false); newGame(); };
 $("giveBtn").onclick = () => { if (!over) finish(false); };
-$("p12").checked = includeP12;
-$("p12").onchange = e => { includeP12 = e.target.checked; store.set("p12", includeP12); if (!guesses.length || over) newGame(); };
-$("p7").checked = includeP7;
-$("p7").onchange = e => { includeP7 = e.target.checked; store.set("p7", includeP7); if (!guesses.length || over) newGame(); };
+
+// ---------- part toggles ----------
+const partName = p => CHARS.find(c => c.part === p).pn;
+$("parts").insertAdjacentHTML("beforeend", PARTS.map(p =>
+  `<button class="ptog" data-part="${p}" aria-pressed="false" aria-label="Part ${p}: ${esc(partName(p))}" title="Part ${p}: ${esc(partName(p))}"><span class="pword">Part </span>${p}</button>`).join(""));
+function renderParts(msg){
+  document.querySelectorAll(".ptog").forEach(b => b.setAttribute("aria-pressed", String(parts.has(b.dataset.part))));
+  $("partsNote").textContent = msg || (partsKey() !== gameParts ? "Part changes apply from your next game." : "");
+}
+$("parts").addEventListener("click", e => {
+  const b = e.target.closest(".ptog");
+  if (!b) return;
+  const p = b.dataset.part;
+  if (parts.has(p) && parts.size === 1){ renderParts("Keep at least one part on."); return; }
+  if (parts.has(p)) parts.delete(p); else parts.add(p);
+  store.set("parts", [...parts].sort((a, b) => a - b));
+  // leave focus on the toggle (no keyboard popping up on phones)
+  if (!guesses.length || over) newGame(false); else renderParts();
+});
 
 newGame();
 </script>
