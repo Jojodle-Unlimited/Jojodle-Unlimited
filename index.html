@@ -183,8 +183,9 @@ button.primary{background:linear-gradient(180deg,#ff8fe0 0%,var(--pink) 55%,var(
 .row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,2fr) repeat(6,minmax(0,1fr));gap:6px;margin-bottom:6px}
 .head div{text-align:center;font-family:var(--display);font-weight:400;font-size:.95rem;letter-spacing:.08em;text-transform:uppercase;color:#fff;
   padding:4px 2px;background:var(--ink);transform:skewX(-10deg);box-shadow:3px 3px 0 var(--pink-d)}
-.cell{min-height:calc(var(--pic) + 6px);border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:4px;
-  font-size:.8rem;font-weight:800;color:#fff;border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);position:relative;overflow:hidden;
+/* every card is the same height as a picture; long text is shrunk to fit (fitRow) */
+.cell{height:calc(var(--pic) + 6px);border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:4px;
+  font-size:.8rem;line-height:1.2;font-weight:800;color:#fff;border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);position:relative;overflow:hidden;
   background-image:radial-gradient(rgba(255,255,255,.16) 1px,transparent 1.5px);background-size:6px 6px;
   text-shadow:var(--outline),2px 2px 0 var(--ink);animation:slam .5s cubic-bezier(.2,1.2,.4,1) both;
   -webkit-hyphens:auto;hyphens:auto;overflow-wrap:anywhere}
@@ -194,8 +195,9 @@ button.primary{background:linear-gradient(180deg,#ff8fe0 0%,var(--pink) 55%,var(
 .cell.pic{flex-direction:row;align-items:stretch;justify-content:flex-start;padding:0}
 .pic-img{flex:none;width:calc(var(--pic) + 3px);display:flex;align-items:center;justify-content:center;background:var(--panel2);border-right:3px solid var(--ink)}
 .pic-img img{display:block;width:var(--pic);height:var(--pic);object-fit:contain}
-.cell.pic span{flex:1;min-width:0;padding:4px 6px;display:flex;align-items:center;justify-content:center}
-.cell p{margin:1px 0}
+.cell.pic span{flex:1;min-width:0;padding:4px 6px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.cell p{margin:0}
+.cell p+p{margin-top:3px}
 .cell u{text-decoration:underline;text-decoration-color:var(--gold);text-decoration-thickness:3px;text-underline-offset:2px;color:#fff3c4}
 .cell .arrow{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:4.4rem;line-height:1;opacity:.3;text-shadow:none;overflow:hidden}
 .cell .pnum{position:absolute;right:5px;font-family:var(--display);font-size:.85rem}
@@ -217,8 +219,6 @@ footer{text-align:center;color:var(--muted);font-size:.75rem;padding:24px 16px}
 @media (max-width:600px){
   .menace .m3{display:none}
   .bar button{font-size:1.05rem;padding:5px 16px}
-  .gridzone{--pic:64px}.grid{min-width:840px}
-  .cell{font-size:.74rem}
   .pword{display:none}.parts-label{display:inline}
   .parts{gap:6px}.ptog{padding:4px 9px}
   .searchrow{flex-wrap:wrap}.mode{flex:1 0 100%}.mode button{flex:1}
@@ -444,11 +444,38 @@ function sfx(hit){
   el.classList.add("pop");
 }
 
+// cards have a fixed height, so long text gets the largest font size that still fits
+function fitText(box){
+  box.style.fontSize = "";
+  const fits = () => box.scrollHeight <= box.clientHeight + 1 && box.scrollWidth <= box.clientWidth + 1;
+  if (fits()) return;
+  let lo = 7, hi = parseFloat(getComputedStyle(box).fontSize);
+  while (hi - lo > 0.25){
+    const mid = (lo + hi) / 2;
+    box.style.fontSize = mid + "px";
+    if (fits()) lo = mid; else hi = mid;
+  }
+  box.style.fontSize = lo + "px";
+}
+function fitRow(row){
+  for (const cell of row.children) fitText(cell.classList.contains("pic") ? cell.querySelector("span") : cell);
+}
+// column widths follow the window, so refit when they change
+let fitWidth = 0, fitTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => {
+    const w = document.querySelector(".row.head > div:nth-child(3)").offsetWidth;
+    if (w !== fitWidth){ fitWidth = w; $("rows").querySelectorAll(".row").forEach(fitRow); }
+  }, 150);
+});
+
 function guess(id){
   if (over || guesses.includes(id)) return;
   const g = byId(id);
   guesses.push(id);
   $("rows").insertAdjacentHTML("afterbegin", renderRow(g, compare(g, secret)));
+  fitRow($("rows").firstElementChild);
   sfx(id === secret.id);
   $("q").value = ""; closeList();
   renderStats(); renderHint();
