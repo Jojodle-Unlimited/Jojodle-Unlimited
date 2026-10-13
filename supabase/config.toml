@@ -396,6 +396,13 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# The challenge functions check the player's sign-in themselves (supabase/functions/_shared/server.ts).
+[functions.create-challenge]
+verify_jwt = false
+
+[functions.challenge-guess]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
