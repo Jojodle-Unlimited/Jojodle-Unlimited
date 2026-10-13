@@ -10,10 +10,14 @@
 
   const Online = window.Online = {
     client: null, user: null, profile: null, ready: false,
-    listeners: [],
+    listeners: [], pingListeners: [],
     onChange(fn){ this.listeners.push(fn); },
+    // fn(kind) runs when the database pings this player: kind is "friends" or "challenges",
+    // or null right after (re)connecting, when anything may have changed
+    onPing(fn){ this.pingListeners.push(fn); },
+    open: () => open(), // the sign-in dialog, for other features that need an account
   };
-  const notify = () => Online.listeners.forEach(fn => { try { fn(Online); } catch (e) { console.error(e); } });
+  const notify = () => { listen(); Online.listeners.forEach(fn => { try { fn(Online); } catch (e) { console.error(e); } }); };
 
   // ---------- markup ----------
   const chip = document.createElement("button");
@@ -181,6 +185,24 @@
     await Online.client.auth.signOut();
     close();
   });
+
+  // ---------- live updates ----------
+  // The database pings the private channel "user:<id>" when this player's friends or challenges change
+  // (only this player may listen to it). The ping carries no details; listeners reload what they show.
+  let channel = null, channelTopic = null;
+  const ping = kind => Online.pingListeners.forEach(fn => { try { fn(kind); } catch (e) { console.error(e); } });
+  async function listen(){
+    const topic = Online.client && Online.user && Online.profile ? "user:" + Online.user.id : null;
+    if (topic === channelTopic) return;
+    if (channel) Online.client.removeChannel(channel);
+    channel = null; channelTopic = topic;
+    if (!topic) return;
+    try { await Online.client.realtime.setAuth(); } catch (e) { /* the channel still joins with the current sign-in */ }
+    if (channelTopic !== topic) return; // signed out or switched account meanwhile
+    channel = Online.client.channel(topic, { config: { private: true } })
+      .on("broadcast", { event: "changed" }, msg => ping(msg.payload ? msg.payload.kind : null))
+      .subscribe(status => { if (status === "SUBSCRIBED") ping(null); }); // a ping may have been missed while away
+  }
 
   // ---------- start ----------
   let resolveSignedIn; let signedIn = new Promise(r => { resolveSignedIn = r; });
