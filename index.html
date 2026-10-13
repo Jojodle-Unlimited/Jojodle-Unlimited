@@ -222,9 +222,23 @@ button.primary{background:linear-gradient(180deg,#ff8fe0 0%,var(--pink) 55%,var(
 .sw{display:inline-block;width:12px;height:12px;border:2px solid var(--ink);vertical-align:-2px;margin-right:5px}
 footer{text-align:center;color:var(--muted);font-size:.75rem;padding:24px 16px}
 
-/* ---------- account (js/online.js) ---------- */
-.acct{position:absolute;top:12px;right:16px;z-index:3;max-width:45vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+/* ---------- account and friends (js/online.js, js/friends.js) ---------- */
+.acct-bar{position:absolute;top:12px;right:16px;z-index:3;display:flex;align-items:center;gap:10px;max-width:calc(100% - 32px)}
+.acct{max-width:45vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-family:var(--display);font-weight:400;font-size:.95rem;letter-spacing:.06em;text-transform:uppercase;padding:5px 14px;transform:skewX(-10deg)}
+.acct[hidden]{display:none}
+.acct .badge{display:inline-block;min-width:1.5em;margin-left:6px;padding:0 5px;border-radius:999px;background:var(--gold);color:var(--ink);font-size:.8rem;text-align:center;text-shadow:none}
+.acct .badge[hidden]{display:none}
+.friends-panel{max-width:460px;max-height:min(88vh,660px);overflow:auto}
+.friends-panel h3{margin:14px 0 6px;font-family:var(--display);font-weight:400;font-size:1.05rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.friends-panel ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
+.friends-panel li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;background:var(--bg);border:2px solid var(--ink);border-radius:4px}
+.fname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
+.factions{display:flex;flex:none;gap:6px}
+.factions button{font-size:.8rem;padding:4px 9px;box-shadow:2px 2px 0 var(--ink)}
+.friend-add-row{display:flex;gap:8px}
+.friend-add-row input{flex:1;min-width:0}
+.friends-panel details summary{cursor:pointer;margin:14px 0 6px;font-weight:700;color:var(--muted)}
 .acct:hover:not(:disabled){transform:skewX(-10deg) translate(-1px,-1px)}
 .acct:active:not(:disabled){transform:skewX(-10deg) translate(3px,3px)}
 .acct.signed-in{background:var(--pink);color:#fff;text-shadow:var(--outline);text-transform:none}
@@ -618,5 +632,6 @@ $("parts").addEventListener("click", e => {
 newGame();
 </script>
 <script src="js/online.js"></script>
+<script src="js/friends.js"></script>
 </body>
 </html>

@@ -200,7 +200,11 @@
         if (user) resolveSignedIn(); else signedIn = new Promise(r => { resolveSignedIn = r; });
       }, 0);
     });
-    document.querySelector(".hero").appendChild(chip);
+    // header buttons share one container (js/friends.js adds its button here too)
+    const bar = document.createElement("div");
+    bar.className = "acct-bar";
+    bar.appendChild(chip);
+    document.querySelector(".hero").appendChild(bar);
     document.body.appendChild(modal);
   }
   const s = document.createElement("script");
