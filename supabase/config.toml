@@ -245,14 +245,14 @@ otp_expiry = 600
 # sender_name = "Admin"
 
 # Sign-in emails carry a 6-digit code (new players get the confirmation email, returning players the magic link one).
-# Supabase only allows custom templates once a custom SMTP sender is set up, so these stay off until then.
-# [auth.email.template.magic_link]
-# subject = "Your JoJodle Unlimited sign-in code"
-# content_path = "./supabase/templates/sign_in_code.html"
-#
-# [auth.email.template.confirmation]
-# subject = "Your JoJodle Unlimited sign-in code"
-# content_path = "./supabase/templates/sign_in_code.html"
+# Custom templates need the custom SMTP sender, which is set up in the dashboard (its password never goes in this file).
+[auth.email.template.magic_link]
+subject = "Your JoJodle Unlimited sign-in code"
+content_path = "./supabase/templates/sign_in_code.html"
+
+[auth.email.template.confirmation]
+subject = "Your JoJodle Unlimited sign-in code"
+content_path = "./supabase/templates/sign_in_code.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
