@@ -62,8 +62,8 @@
       blocked: [blocked, [["unblock", "Unblock"]]],
     };
     for (const [key, [items, actions]] of Object.entries(lists)){
-      const box = $p(`[data-list="${key}"]`);
-      box.querySelector("ul").innerHTML = items.map(f => row(f, actions)).join("");
+      const box = $p(`[data-list="${key}"]`), ul = box.querySelector("ul"), html = items.map(f => row(f, actions)).join("");
+      if (ul._html !== html){ ul.innerHTML = html; ul._html = html; } // unchanged lists keep their buttons (no lost clicks)
       if (key === "friend") box.querySelector("[data-empty]").hidden = items.length > 0;
       else box.hidden = items.length === 0;
     }

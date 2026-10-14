@@ -205,10 +205,25 @@
   }
 
   // ---------- start ----------
+  // a request with no answer after 20 seconds is given up, so the page can say so instead of waiting forever
+  const TIMEOUT_MS = 20000;
+  function fetchWithTimeout(input, init){
+    const opts = Object.assign({}, init), ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+    if (opts.signal){
+      if (opts.signal.aborted) ctl.abort();
+      else opts.signal.addEventListener("abort", () => ctl.abort(), { once: true });
+    }
+    opts.signal = ctl.signal;
+    return fetch(input, opts).finally(() => clearTimeout(timer));
+  }
+
   let resolveSignedIn; let signedIn = new Promise(r => { resolveSignedIn = r; });
   function init(){
     if (!window.supabase || !window.supabase.createClient) return;
-    Online.client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+    Online.client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      global: { fetch: fetchWithTimeout },
+    });
     Online.client.auth.onAuthStateChange((event, session) => {
       const user = session ? session.user : null;
       const changed = (user && user.id) !== (Online.user && Online.user.id);

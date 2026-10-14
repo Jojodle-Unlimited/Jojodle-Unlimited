@@ -15,9 +15,14 @@
     JJ011: "That challenge isn't available any more.",
     JJ012: "That's your own challenge.",
     JJ013: "You already guessed that character.",
+    JJ014: "The race hasn't started yet.",
     "28000": "Please sign in again.",
   };
   const message = code => MESSAGES[code] || "Something went wrong. Check your connection and try again.";
+  const RULES = {
+    async: "You both get the same answer. Fewest guesses wins; same number of guesses, the faster time wins. The other player has 24 hours to accept.",
+    race: "You both get the same answer at the same moment, and the first to solve wins. The other player has 10 minutes to join you in the lobby.",
+  };
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const guessWord = n => `${n} ${n === 1 ? "guess" : "guesses"}`;
   const signedIn = () => !!(Online.client && Online.user && Online.profile);
@@ -52,12 +57,16 @@
         </div>
         <form class="vs-form" data-view="new" novalidate hidden>
           <label>Opponent<select name="opponent"></select></label>
+          <fieldset><legend>Game</legend>
+            <label class="choice"><input type="radio" name="mode" value="async" checked><span>Take turns<small>Play any time in the next 24 hours</small></span></label>
+            <label class="choice"><input type="radio" name="mode" value="race"><span>Live race<small>Right now, at the same moment; first to solve wins</small></span></label>
+          </fieldset>
           <fieldset><legend>Parts</legend><div class="vs-parts"></div></fieldset>
           <fieldset><legend>Guesses</legend>
             <label class="choice"><input type="radio" name="limit" value="9" checked> 9 guesses</label>
             <label class="choice"><input type="radio" name="limit" value="none"> No limit</label>
           </fieldset>
-          <p class="acct-hint">You both get the same answer. Fewest guesses wins; same number of guesses, the faster time wins. The other player has 24 hours to accept.</p>
+          <p class="acct-hint" data-rules></p>
           <div class="acct-row"><button class="primary" type="submit">Make link</button><button type="button" data-act="back">Back</button></div>
           <p class="acct-msg" role="alert"></p>
         </form>
@@ -89,25 +98,38 @@
     </div>`;
   const $i = sel => invite.querySelector(sel);
 
+  // a live race invite pops up: it can't wait in a list for long
+  const toast = document.createElement("div");
+  toast.className = "vs-toast"; toast.id = "vsToast"; toast.hidden = true;
+  toast.setAttribute("role", "alert");
+
   let items = [], seen = new Set(), tab = "challenges", view = "list", made = null;
-  let pollTimer = null, mounted = false, urlHandled = false, inviteCode = null;
+  let pollTimer = null, mounted = false, urlHandled = false, inviteCode = null, toastFor = null;
+  const toasted = new Set(); // race invites already shown in the notice (each pops up once)
   const known = new Map(); // each list entry as last seen, to notice when the challenge on the board changes
 
   // ---------- server ----------
-  // every call resolves to { data } or { error: { code, text } }, never throws
-  async function rpc(fn, args){
-    try {
-      const { data, error } = await Online.client.rpc(fn, args);
-      return error ? { error: { code: error.code, text: message(error.code) } } : { data };
-    } catch (e) { return { error: { code: "network", text: message() } }; }
+  // every call resolves to { data } or { error: { code, text } }, never throws. A call lost to a dropped connection
+  // (status 0) is tried once more: the database calls are all safe to repeat, and so is a guess (a repeat is refused
+  // as already guessed and the board catches up). Creating a challenge is never repeated, so it can't make two.
+  // A call that timed out (no answer in 20 seconds, see js/online.js) isn't repeated: the player hears about it at once.
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const timedOut = e => !!e && (e.name === "AbortError" || /^AbortError/.test(e.message || "") || /aborted/i.test(e.hint || ""));
+  async function rpc(fn, args, again = true){
+    let res;
+    try { res = await Online.client.rpc(fn, args); } catch (e) { res = { error: { name: e && e.name }, status: 0 }; }
+    const { data, error, status } = res;
+    if (error && status === 0 && again && !timedOut(error)){ await pause(400); return rpc(fn, args, false); }
+    return error ? { error: { code: error.code || "network", text: message(error.code) } } : { data };
   }
-  async function invoke(name, body){
+  async function invoke(name, body, again = false){
     try {
       const { data, error } = await Online.client.functions.invoke(name, { body });
       if (!error) return { data };
+      if (error.name === "FunctionsFetchError" && again && !timedOut(error.context)){ await pause(400); return invoke(name, body, false); }
       let code = null;
       try { code = (await error.context.json()).code; } catch (e) { /* not one of our replies */ }
-      return { error: { code, text: message(code) } };
+      return { error: { code: code || (error.name === "FunctionsFetchError" ? "network" : null), text: message(code) } };
     } catch (e) { return { error: { code: "network", text: message() } }; }
   }
   const load = async id => { const r = await rpc("get_challenge", { p_id: id }); return r.error ? r : { ch: r.data }; };
@@ -132,7 +154,7 @@
     for (const x of items){
       if (!isOpen(x)) g.done.push(x);
       else if (x.status === "pending" && x.role === "opponent") g.incoming.push(x);
-      else if (!x.my_finished) g.turn.push(x);
+      else if (!x.my_finished && !(x.mode === "race" && x.status === "pending")) g.turn.push(x);
       else g.waiting.push(x);
     }
     return g;
@@ -165,19 +187,60 @@
     setBadge(tabs.friends.querySelector(".badge"), requests);
     btn.setAttribute("aria-label", mine + requests ? `Versus, ${mine + requests} new` : "Versus");
     for (const key of Object.keys(g)){
-      const box = $m(`[data-group="${key}"]`);
+      const box = $m(`[data-group="${key}"]`), ul = box.querySelector("ul"), html = g[key].map(x => itemHTML(x, key)).join("");
       box.hidden = !g[key].length;
-      box.querySelector("ul").innerHTML = g[key].map(x => itemHTML(x, key)).join("");
+      if (ul._html !== html){ ul.innerHTML = html; ul._html = html; } // unchanged lists keep their buttons (no lost clicks)
     }
     $m("[data-empty]").hidden = items.length > 0;
+    syncToast();
   }
 
+  // pops up a live race invite, or a race of yours that can start now (the other player joined) while you're elsewhere
+  function syncToast(){
+    const live = items.filter(x => x.mode === "race" && x.id !== Game.matchId()
+      && ((x.status === "pending" && x.role === "opponent") || (x.status === "active" && !x.starts_at)));
+    if (toastFor && !live.some(x => x.id === toastFor)) hideToast(); // answered, started, called off or expired
+    const fresh = live.find(x => !toasted.has(x.id));
+    if (!fresh) return;
+    const invite = fresh.status === "pending";
+    toasted.add(fresh.id);
+    toastFor = fresh.id;
+    toast.dataset.invite = invite ? "1" : "";
+    toast.innerHTML = `<p><b>${esc(fresh.opponent)}</b> ${invite ? "wants to race you now!" : "is ready to race!"}</p>
+      <p class="acct-hint">${esc(Game.partsText(fresh.parts))} · ${fresh.max_guesses ? guessWord(fresh.max_guesses) : "No guess limit"} · first to solve wins</p>
+      <div class="acct-row">${buttons([["join", invite ? "Join" : "Go to the lobby", true], ["later", "Not now"]])}</div>`;
+    toast.hidden = false;
+  }
+  function hideToast(){ toast.hidden = true; toastFor = null; }
+  toast.addEventListener("click", async e => {
+    const b = e.target.closest("button[data-act]");
+    if (!b || !toastFor) return;
+    if (b.dataset.act === "later") return hideToast();
+    const id = toastFor, invite = toast.dataset.invite === "1";
+    b.disabled = true;
+    const r = invite ? await rpc("accept_challenge", { p_id: id }) : {};
+    const err = r.error || await play(id);
+    b.disabled = false;
+    if (err){ toast.querySelector(".acct-hint").textContent = err.text; return; }
+    hideToast();
+    refresh();
+  });
+
   function itemHTML(x, key){
-    const who = x.opponent ? `<b>${esc(x.opponent)}</b>` : null;
+    const who = x.opponent ? `<b>${esc(x.opponent)}</b>` : null, race = x.mode === "race";
     let title, cls = "", acts = [];
-    if (key === "incoming"){ title = `${who} challenged you`; acts = [["accept", "Accept &amp; play", true], ["decline", "Decline"]]; }
-    else if (key === "turn"){ title = `${who ? `vs ${who}` : "Link challenge"} · your turn`; acts = [["play", x.my_started ? "Continue" : "Play", true]]; }
-    else if (key === "waiting"){
+    if (key === "incoming"){
+      title = race ? `${who} wants to race you now` : `${who} challenged you`;
+      acts = [["accept", race ? "Join" : "Accept &amp; play", true], ["decline", "Decline"]];
+    } else if (key === "turn" && race){
+      title = `${who ? `vs ${who}` : "Link race"} · ${x.starts_at ? "racing now" : "in the lobby"}`;
+      acts = [["play", x.starts_at ? "Back to the race" : "Go to the lobby", true]];
+      if (!x.starts_at) acts.push(["cancel", "Call off"]);
+    } else if (key === "turn"){ title = `${who ? `vs ${who}` : "Link challenge"} · your turn`; acts = [["play", x.my_started ? "Continue" : "Play", true]]; }
+    else if (key === "waiting" && race){
+      title = x.status === "pending" ? (who ? `vs ${who} · waiting for them to join` : "Link race · nobody has joined yet") : `vs ${who} · still racing`;
+      acts = x.status === "pending" ? [["play", "Go to the lobby", true]] : [["view", "View"]];
+    } else if (key === "waiting"){
       title = !who ? "Link challenge · nobody has taken it yet" : `vs ${who} · ${x.status === "pending" ? "hasn't accepted yet" : "still playing"}`;
       acts = [["view", "View"]];
     } else if (x.status === "finished"){
@@ -186,15 +249,15 @@
       acts = [["view", "View"], ["rematch", "Rematch", true]];
     } else {
       title = x.status === "declined" ? (x.role === "creator" ? `${who} declined` : `You declined ${who}`)
-        : `${who ? `vs ${who}` : "Link challenge"} · ${x.status === "expired" ? "expired" : "cancelled"}`;
+        : `${who ? `vs ${who}` : race ? "Link race" : "Link challenge"} · ${x.status === "expired" ? "expired" : race ? "called off" : "cancelled"}`;
       if (x.my_started) acts = [["view", "View"]];
     }
     if (x.role === "creator" && x.status === "pending"){ if (x.link_code) acts.push(["copy", "Copy link"]); acts.push(["cancel", "Cancel"]); }
     const facts = [esc(Game.partsText(x.parts)), x.max_guesses ? guessWord(x.max_guesses) : "No guess limit"];
     if (key === "turn" && x.status === "pending" && x.opponent) facts.push("not accepted yet");
-    if (isOpen(x)) facts.push(Game.timeLeft(x.expires_at));
+    if (isOpen(x)) facts.push(Game.timeLeft(x.expires_at) + (race && !x.starts_at ? " to join" : ""));
     const score = x.status !== "finished" ? "" : `<div class="ch-meta">You: ${x.my_solved ? guessWord(x.my_guesses) : "not solved"} · ${esc(x.opponent)}: ${x.their_solved ? guessWord(x.their_guesses) : "not solved"}</div>`;
-    return `<li class="ch-item ${cls}" data-id="${esc(x.id)}"><div class="ch-title">${title}</div>${score}<div class="ch-meta">${facts.join(" · ")}</div>${
+    return `<li class="ch-item ${cls}" data-id="${esc(x.id)}"><div class="ch-title">${title}${race ? '<span class="tag">Live race</span>' : ""}</div>${score}<div class="ch-meta">${facts.join(" · ")}</div>${
       acts.length ? `<div class="ch-actions">${buttons(acts)}</div>` : ""}</li>`;
   }
 
@@ -206,7 +269,7 @@
     if (!x) return;
     const act = b.dataset.act, id = x.id;
     if (act === "decline" && !confirm(`Decline ${x.opponent}'s challenge?`)) return;
-    if (act === "cancel" && !confirm("Cancel this challenge? Nobody will be able to play it.")) return;
+    if (act === "cancel" && !confirm(x.mode === "race" ? "Call off this race?" : "Cancel this challenge? Nobody will be able to play it.")) return;
     b.disabled = true; say("list", "");
     let err = null;
     if (act === "accept"){ const r = await rpc("accept_challenge", { p_id: id }); err = r.error || await play(id); }
@@ -228,13 +291,17 @@
     // a challenge sent to this player that they haven't accepted yet: answer it in the panel first
     if (r.ch.role === "opponent" && r.ch.status === "pending"){ hideInvite(); setUrl(null); open("challenges"); return null; }
     close(false); hideInvite();
+    if (toastFor === id) hideToast();
     const code = r.ch.link_code;
     Game.playMatch({
       ch: r.ch,
       start: async () => { const s = await rpc("start_challenge", { p_id: id }); return s.error ? s : load(id); },
-      guess: charId => invoke("challenge-guess", { id, charId }),
+      guess: charId => invoke("challenge-guess", { id, charId }, true),
       reload: () => load(id),
       giveUp: async () => { const s = await rpc("give_up_challenge", { p_id: id }); return s.error ? s : load(id); },
+      ready: async () => { const s = await rpc("race_ready", { p_id: id }); return s.error ? s : load(id); },
+      unready: () => rpc("race_unready", { p_id: id }),
+      cancel: async () => { const s = await rpc("cancel_challenge", { p_id: id }); return s.error ? s : load(id); },
       rematch: () => rematch(id),
       copyLink: async () => (await copy(linkFor(code))) ? { text: "Link copied." } : null,
       done: () => refresh(),
@@ -272,8 +339,13 @@
   });
 
   const submitBtn = form.querySelector('[type="submit"]');
-  const updateSubmit = () => { submitBtn.textContent = form.opponent.value === "link" ? "Make link" : "Send challenge"; };
+  const updateSubmit = () => {
+    const race = form.mode.value === "race";
+    submitBtn.textContent = form.opponent.value === "link" ? "Make link" : race ? "Send race invite" : "Send challenge";
+    $m("[data-rules]").textContent = RULES[race ? "race" : "async"];
+  };
   form.opponent.addEventListener("change", updateSubmit);
+  form.addEventListener("change", e => { if (e.target.name === "mode") updateSubmit(); });
   function fillOpponents(want = form.opponent.value){
     const friends = Friends.list().filter(f => f.state === "friend");
     form.opponent.innerHTML = '<option value="link">Anyone with a link</option>' + friends.map(f => `<option value="${esc(f.id)}">${esc(f.username)}</option>`).join("");
@@ -282,6 +354,7 @@
   }
   function showNew(friendId){
     showView("new");
+    form.mode.value = "async";
     fillOpponents(friendId || "link");
     const on = new Set(Game.parts()); // starts from the parts this player has on
     partsBox.querySelectorAll(".ptog").forEach(b => b.setAttribute("aria-pressed", String(on.has(b.dataset.part))));
@@ -294,25 +367,29 @@
     e.preventDefault();
     const parts = [...partsBox.querySelectorAll('[aria-pressed="true"]')].map(b => b.dataset.part);
     if (!parts.length) return say("new", "Pick at least one part.");
-    const opp = form.opponent.value, body = { parts, maxGuesses: form.limit.value === "9" ? 9 : null };
+    const opp = form.opponent.value, body = { parts, maxGuesses: form.limit.value === "9" ? 9 : null, mode: form.mode.value };
     if (opp === "link") body.link = true; else body.opponent = opp;
     submitBtn.disabled = true; say("new", opp === "link" ? "Making your link…" : "Sending…");
     const r = await invoke("create-challenge", body);
     submitBtn.disabled = false;
     if (r.error) return say("new", r.error.text);
     say("new", "");
-    const friend = Friends.list().find(f => f.id === opp);
-    showMade(r.data, friend ? friend.username : null);
     refresh();
+    // a race with a friend goes straight to the lobby, where they'll join you
+    if (body.mode === "race" && opp !== "link"){ const err = await play(r.data.id); if (err) say("new", err.text); return; }
+    const friend = Friends.list().find(f => f.id === opp);
+    showMade(r.data, friend ? friend.username : null, body.mode === "race");
   });
   form.querySelector('[data-act="back"]').addEventListener("click", () => { showView("list"); $m('[data-act="new"]').focus(); });
 
-  function showMade(data, friendName){
+  function showMade(data, friendName, race){
     made = data;
     showView("made");
-    $m("[data-made]").innerHTML = friendName
-      ? `Challenge sent to <b>${esc(friendName)}</b>! They have 24 hours to accept. Play your turn now or later.`
+    $m("[data-made]").innerHTML = race
+      ? "Your race link is ready. Send it to someone, then wait in the lobby: the race starts as soon as they join."
+      : friendName ? `Challenge sent to <b>${esc(friendName)}</b>! They have 24 hours to accept. Play your turn now or later.`
       : "Your challenge link is ready. Send it to anyone: the first person to accept it plays you.";
+    $m('[data-view="made"] [data-act="play"]').textContent = race ? "Go to the lobby" : "Play now";
     $m("[data-link]").hidden = !data.link_code;
     if (data.link_code) $m("[data-link] input").value = linkFor(data.link_code);
     $m('[data-view="made"] [data-act="share"]').hidden = !(data.link_code && navigator.share);
@@ -395,17 +472,18 @@
     if (inviteCode !== code || invite.hidden) return; // closed meanwhile
     if (r.error) return set(`<p>${r.error.code === "JJ011" ? "This challenge link isn't available. It may have been cancelled." : esc(r.error.text)}</p>`, [["close", "Close"]]);
     const p = r.data, who = `<b>${esc(p.creator)}</b>`, waiting = p.status === "pending" && !p.claimed;
+    const race = p.mode === "race", kind = race ? "race" : "challenge";
     invite.dataset.id = p.id;
-    if (p.mine) return set(`<p>This is your own challenge link.${waiting ? " Send it to someone so they can play you." : ""}</p>`,
-      waiting ? [["copy", "Copy link", true], ["play", "Open it"], ["close", "Close"]] : [["play", "Open it", true], ["close", "Close"]]);
-    if (p.claimed_by_me) return set(`<p>You've accepted ${who}'s challenge.</p>`, [["play", "Continue", true], ["close", "Close"]]);
-    if (p.claimed) return set(`<p>Someone else already accepted ${who}'s challenge.</p>`, [["close", "Close"]]);
-    if (p.status === "expired") return set(`<p>${who}'s challenge expired before anyone accepted it.</p>`, [["close", "Close"]]);
-    if (p.status !== "pending") return set(`<p>${who} cancelled this challenge.</p>`, [["close", "Close"]]);
-    set(`<p>${who} challenged you!</p>
-      <p class="vs-rules"><b>${esc(Game.partsText(p.parts))}</b> · <b>${p.max_guesses ? guessWord(p.max_guesses) : "No guess limit"}</b> · ${Game.timeLeft(p.expires_at)} to accept</p>
-      <p class="vs-rules">You both get the same answer. Fewest guesses wins; same number of guesses, the faster time wins.</p>`,
-      [["accept", "Accept and play", true], ["close", "Not now"]]);
+    if (p.mine) return set(`<p>This is your own ${kind} link.${waiting ? ` Send it to someone so they can ${race ? "race" : "play"} you.` : ""}</p>`,
+      waiting ? [["copy", "Copy link", true], ["play", race ? "Go to the lobby" : "Open it"], ["close", "Close"]] : [["play", "Open it", true], ["close", "Close"]]);
+    if (p.claimed_by_me) return set(`<p>You've accepted ${who}'s ${kind}.</p>`, [["play", race ? "Go to the race" : "Continue", true], ["close", "Close"]]);
+    if (p.claimed) return set(`<p>Someone else already accepted ${who}'s ${kind}.</p>`, [["close", "Close"]]);
+    if (p.status === "expired") return set(`<p>${who}'s ${kind} expired before anyone accepted it.</p>`, [["close", "Close"]]);
+    if (p.status !== "pending") return set(`<p>${who} ${race ? "called off this race" : "cancelled this challenge"}.</p>`, [["close", "Close"]]);
+    set(`<p>${race ? `${who} wants to race you live!` : `${who} challenged you!`}</p>
+      <p class="vs-rules"><b>${esc(Game.partsText(p.parts))}</b> · <b>${p.max_guesses ? guessWord(p.max_guesses) : "No guess limit"}</b> · ${Game.timeLeft(p.expires_at)} to ${race ? "join" : "accept"}</p>
+      <p class="vs-rules">${race ? "You both get the same answer at the same moment, and the first to solve wins." : "You both get the same answer. Fewest guesses wins; same number of guesses, the faster time wins."}</p>`,
+      [["accept", race ? "Join the race" : "Accept and play", true], ["close", "Not now"]]);
   }
   invite.addEventListener("click", async e => {
     const b = e.target.closest("button[data-act]");
@@ -467,6 +545,7 @@
       panes.friends.appendChild(Friends.panel);
       document.body.appendChild(modal);
       document.body.appendChild(invite);
+      document.body.appendChild(toast);
       mounted = true;
     }
     btn.hidden = false; // signed-out players see it too; it asks them to sign in
@@ -476,7 +555,7 @@
       refresh();
       pollTimer = setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
     } else {
-      items = []; known.clear(); render();
+      items = []; known.clear(); render(); hideToast();
       close(false);
       if (Game.matchId()) Game.leaveMatch();
     }
@@ -484,7 +563,11 @@
     handleUrl();
   }
   Online.onChange(sync);
-  Online.onPing(kind => { if (kind === "challenges" || kind === null) refresh(); });
+  Online.onPing(kind => {
+    // a guess in a race: the board reloads it to show the opponent's new colours
+    if (kind === "race"){ const cur = Game.matchId(); if (cur) load(cur).then(c => { if (c.ch) Game.updateMatch(c.ch); }); }
+    else if (kind === "challenges" || kind === null) refresh();
+  });
   Friends.onUpdate(() => { render(); if (view === "new" && !modal.hidden) fillOpponents(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 

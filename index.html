@@ -191,7 +191,25 @@ button.primary{background:linear-gradient(180deg,#ff8fe0 0%,var(--pink) 55%,var(
 .vs-line span{flex:none;color:var(--muted);font-weight:700}
 .vs-line.won{border-color:var(--gold);box-shadow:3px 3px 0 var(--ink)}
 .vs-line.won b{color:var(--gold)}
-.banner-actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:16px}
+.banner-actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:16px;padding:0 6px} /* room for the buttons' slant */
+.vs-wait{margin:14px auto 0;font-family:var(--display);font-size:1.25rem;letter-spacing:.04em;color:var(--gold);animation:waiting 1.6s ease-in-out infinite}
+@keyframes waiting{50%{opacity:.45}}
+/* live race: the opponent's colours as they guess (not which characters), and the 3-2-1 countdown */
+.rival{max-width:540px;margin:14px auto 0;padding:8px 12px;background:rgba(11,7,16,.78);border:2px solid var(--ink);border-left:6px solid var(--violet);border-radius:4px;box-shadow:3px 3px 0 rgba(0,0,0,.55)}
+.rival-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.rival-head b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--display);font-weight:400;font-size:1.05rem;letter-spacing:.04em}
+.rival-head span{flex:none;color:var(--muted);font-size:.85rem;font-weight:700}
+.rival-rows{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:6px}
+.rival-row{display:flex;gap:2px}
+.rival-row i{width:9px;height:9px;border:1px solid var(--ink);border-radius:1px}
+.rival-row i.g{background:var(--green)}.rival-row i.o{background:var(--orange)}.rival-row i.r{background:var(--red)}
+.countdown{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;pointer-events:none;background:rgba(11,7,16,.5);
+  font-family:var(--display);font-size:clamp(6rem,30vw,12rem);line-height:1;color:var(--gold);-webkit-text-stroke:4px var(--ink);text-shadow:8px 8px 0 var(--ink),4px 4px 0 var(--pink-d)}
+.countdown[hidden]{display:none}
+.countdown span{display:block;transform:rotate(-4deg)}
+.countdown.go{color:#ff8fe0}
+.countdown.pop span{animation:countpop .45s cubic-bezier(.2,1.4,.4,1) both} /* only the digit pops; the dimmed backdrop stays put */
+@keyframes countpop{0%{transform:scale(1.8) rotate(-6deg);opacity:0}100%{transform:scale(1) rotate(-4deg);opacity:1}}
 /* "to be continued" tag with a left-pointing arrow, for a challenge that isn't over yet */
 .tbc{display:table;margin:16px 4px 0 auto;padding:4px 14px 4px 26px;font-family:var(--display);font-size:.9rem;letter-spacing:.12em;text-transform:uppercase;
   color:var(--ink);background:var(--gold);clip-path:polygon(16px 0,100% 0,100% 100%,16px 100%,0 50%);transform:skewX(-8deg)}
@@ -282,6 +300,15 @@ footer{text-align:center;color:var(--muted);font-size:.75rem;padding:24px 16px}
 .vs-invite [data-body]{display:grid;gap:8px;margin-bottom:16px}
 .vs-invite .vs-rules{color:var(--muted)}
 .vs-invite .acct-msg{margin-top:10px}
+.modal-panel .choice small{display:block;font-size:.8rem;font-weight:400;color:var(--muted)}
+.tag{display:inline-block;margin-left:8px;padding:1px 6px;border-radius:3px;background:var(--violet);color:#fff;font-size:.68rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;vertical-align:2px;white-space:nowrap}
+/* a live race invite pops up at the bottom of the page */
+.vs-toast{position:fixed;left:50%;bottom:16px;z-index:45;display:grid;gap:8px;width:min(420px,calc(100% - 32px));padding:12px 14px;background:var(--panel);
+  border:3px solid var(--ink);border-left:6px solid var(--pink);border-radius:6px;box-shadow:6px 6px 0 var(--ink);transform:translateX(-50%);animation:toastin .3s ease-out both}
+.vs-toast[hidden]{display:none}
+.vs-toast p{margin:0}
+.vs-toast button.primary{font-family:var(--display);font-weight:400;letter-spacing:.06em;text-transform:uppercase}
+@keyframes toastin{from{opacity:0;transform:translate(-50%,20px)}}
 #acctModal{z-index:60} /* signing in can start from another dialog (e.g. a challenge link) */
 .acct:hover:not(:disabled){transform:skewX(-10deg) translate(-1px,-1px)}
 .acct:active:not(:disabled){transform:skewX(-10deg) translate(3px,3px)}
@@ -362,6 +389,7 @@ footer{text-align:center;color:var(--muted);font-size:.75rem;padding:24px 16px}
   </div>
   <div class="parts" id="parts" role="group" aria-label="Parts in play"><span class="parts-label">Parts</span></div>
   <div class="parts-note" id="partsNote" aria-live="polite"></div>
+  <div class="rival" id="rival" hidden></div>
 
   <div class="searchwrap">
     <div class="searchrow">
@@ -392,6 +420,7 @@ footer{text-align:center;color:var(--muted);font-size:.75rem;padding:24px 16px}
     <span><u>Underlined ability</u> means a word in it appears in the answer's abilities</span>
     <span>Orange User/Stand means that character is in the answer's affiliations</span>
   </div>
+  <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
 </main>
 <footer>Fan-made unlimited mode. Character data and images from jojodle.app and jojowiki.com.</footer>
 
@@ -656,7 +685,10 @@ $("mUser").onclick = () => setMode("user");
 $("mStand").onclick = () => setMode("stand");
 $("newBtn").onclick = () => {
   if (match){
-    if (!over && match.ch.me.started_at && !confirm("Leave this challenge? Your clock keeps running. You can come back to it from Versus.")) return;
+    const race = match.ch.mode === "race";
+    if (!over && (race ? match.live : match.ch.me.started_at) && !confirm(race
+      ? "Leave the race? It goes on without you. You can come back to it from Versus while it lasts."
+      : "Leave this challenge? Your clock keeps running. You can come back to it from Versus.")) return;
     return leaveMatch();
   }
   if (!over && guesses.length && !confirm("Abandon this game? It will count as a loss.")) return;
@@ -722,11 +754,16 @@ function setMatchData(ch){
   if (ch.now) match.offset = when(ch.now) - Date.now(); // the server's clock decides; this keeps the timer in step
 }
 
+// waiting in a race's lobby (it starts once both players are there)
+const inLobby = m => !!m && m.ch.mode === "race" && !m.ch.starts_at && (m.ch.status === "pending" || m.ch.status === "active");
+
 function playMatch(m){
   if (!match) solo = { secret, guesses, over, hintAbility, gamePool, gameParts, rows: $("rows").innerHTML,
                        banner: { cls: $("banner").className, html: $("banner").innerHTML } };
+  else if (match.ch.id !== m.ch.id && inLobby(match) && match.unready) match.unready(); // left that lobby for another game
   clearTimeout(bannerTimer);
   sending = false;
+  $("banner")._html = null;
   match = Object.assign({}, m, { view: "me", offset: 0, checkedExpiry: false });
   setMatchData(m.ch);
   gamePool = CHARS.filter(c => m.ch.parts.includes(c.part));
@@ -739,8 +776,10 @@ function playMatch(m){
 function leaveMatch(){
   if (!match) return;
   const m = match, s = solo;
+  if (inLobby(m) && m.unready) m.unready(); // the race mustn't start without this player
   match = null; solo = null; sending = false;
   clearInterval(clock); clearTimeout(bannerTimer);
+  heartbeat(false); $("rival").hidden = true; $("countdown").hidden = true; $("banner")._html = null;
   $("newBtn").textContent = "New game";
   $("parts").classList.remove("locked");
   if (s){
@@ -757,7 +796,7 @@ function leaveMatch(){
 
 // draw the board from the challenge: rows, clue, counters, and the start card or the result
 function showMatch(redrawRows){
-  const ch = match.ch, me = ch.me;
+  const ch = match.ch, me = ch.me, race = ch.mode === "race";
   guesses = me.guesses.map(g => g.char_id);
   over = !!me.finished_at || (ch.status !== "pending" && ch.status !== "active");
   secret = (ch.secret && byId(ch.secret)) || null;
@@ -767,21 +806,84 @@ function showMatch(redrawRows){
     $("rows").innerHTML = shown.filter(g => byId(g.char_id)).reverse().map(g => renderRow(byId(g.char_id), g.result)).join("");
     $("rows").querySelectorAll(".row").forEach(r => { r.classList.add("still"); fitRow(r); });
   }
-  const playing = !over && !!me.started_at;
+  // a race is played from its start time (after the lobby and the countdown); a turn-based challenge from Start
+  const lobby = race && !over && !ch.starts_at;
+  const playing = !over && (race ? !!ch.starts_at && serverNow() >= when(ch.starts_at) : !!me.started_at);
+  match.live = playing;
   $("q").disabled = !playing || sending; $("dd").disabled = !playing || sending;
   if (!playing) closeList();
-  $("giveBtn").disabled = over || sending;
+  $("giveBtn").disabled = over || sending || (race && !playing);
   $("newBtn").textContent = "Back to solo";
   $("parts").classList.add("locked");
-  renderHint(); renderStats(); renderParts();
-  const b = $("banner");
-  if (over){
-    const mood = ch.status === "finished" ? ch.result : me.solved ? "win" : me.finished_at ? "loss" : "";
+  renderHint(); renderStats(); renderParts(); renderRival();
+  const b = $("banner"), card = over || lobby || (!race && !me.started_at);
+  if (card){
+    const mood = !over ? "" : ch.status === "finished" ? ch.result : me.solved ? "win" : me.finished_at ? "loss" : "";
     b.className = "banner" + ({ win: " win", loss: " lose" }[mood] || "");
-    b.innerHTML = resultCard();
-  } else if (!me.started_at){ b.className = "banner"; b.innerHTML = startCard(); }
-  b.style.display = playing ? "none" : "block";
+    // redraw only when something changed, so a click on its buttons isn't lost to an identical update
+    const html = over ? resultCard() : lobby ? lobbyCard() : startCard();
+    if (b._html !== html){ b.innerHTML = html; b._html = html; }
+  }
+  b.style.display = card ? "block" : "none";
+  heartbeat(lobby);
+  renderCountdown();
   tick();
+}
+
+// waiting for both players: the race starts by itself once both are here
+function lobbyCard(){
+  const ch = match.ch, opp = ch.opponent ? esc(ch.opponent.username) : null;
+  const wait = !opp ? "Waiting for someone to join from your link…"
+    : ch.status === "pending" ? `Waiting for ${opp} to join…`
+    : ch.them && ch.them.ready ? `${opp} is here. Starting…` : `Waiting for ${opp} to come back to the lobby…`;
+  const acts = [];
+  if (!opp && ch.link_code) acts.push(`<button type="button" data-act="copy">Copy link</button>`);
+  acts.push(`<button type="button" data-act="cancel">Call it off</button>`, `<button type="button" data-act="solo">Back to solo</button>`);
+  return `<h2>${opp ? `Live race vs ${opp}` : "Live race"}</h2>
+    <p class="vs-rules"><b>${esc(partsText(ch.parts))}</b> · <b>${ch.max_guesses ? guessWord(ch.max_guesses) : "No guess limit"}</b> · first to solve wins</p>
+    <p class="vs-wait">${wait}</p>
+    <p class="vs-rules">The race starts as soon as you're both here (${timeLeft(ch.expires_at, serverNow())} to get going). Keep this page open.</p>
+    <div class="banner-actions">${acts.join("")}</div>`;
+}
+
+// the opponent in a race: their colours as they guess, newest last
+function renderRival(){
+  const el = $("rival"), ch = match && match.ch;
+  if (!ch || ch.mode !== "race" || !ch.starts_at || !ch.opponent || !ch.them){ el.hidden = true; return; }
+  const them = ch.them, rows = them.progress || (them.guesses || []).map(g => ["user", "stand", "gender", "ability", "type", "side", "affiliation", "part"].map(k => g.result[k]).join(""));
+  const state = ch.status === "finished" ? (them.solved ? "solved it" : them.gave_up ? "gave up" : "didn't solve it")
+    : them.finished ? (them.gave_up ? "gave up" : "out of guesses") : serverNow() < when(ch.starts_at) ? "ready" : "racing";
+  el.hidden = false;
+  el.innerHTML = `<div class="rival-head"><b>${esc(ch.opponent.username)}</b><span>${guessWord(them.guess_count || 0)} · ${state}</span></div>${
+    rows.length ? `<div class="rival-rows" aria-hidden="true">${rows.map(r => `<span class="rival-row">${[...r].map(c => `<i class="${{ g: "g", o: "o", r: "r" }[c] || ""}"></i>`).join("")}</span>`).join("")}</div>` : ""}`;
+}
+
+// 3, 2, 1, GO! over the page, by the server's clock so both players see it together
+function renderCountdown(){
+  const el = $("countdown"), ch = match && match.ch;
+  const left = ch && ch.mode === "race" && ch.starts_at && !over ? when(ch.starts_at) - serverNow() : null;
+  if (left === null || left <= -1000){ el.hidden = true; return; }
+  const text = left > 0 ? String(Math.min(3, Math.ceil(left / 1000))) : "GO!";
+  if (el.hidden || el.textContent !== text){
+    el.hidden = false; el.innerHTML = `<span>${text}</span>`; el.classList.toggle("go", left <= 0);
+    el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+  }
+}
+
+// while waiting in a race's lobby, check in every few seconds (the server starts the race once both have)
+let beat = null;
+function heartbeat(on){
+  if (on && beat && beat.m === match) return;
+  if (beat) clearInterval(beat.t);
+  beat = null;
+  if (!on) return;
+  const m = match, go = async () => {
+    if (match !== m || !beat || beat.m !== m) return;
+    const r = await m.ready();
+    if (match === m && r && r.ch) updateMatch(r.ch);
+  };
+  beat = { m, t: setInterval(go, 3000) };
+  go();
 }
 
 function startCard(){
@@ -793,14 +895,14 @@ function startCard(){
 }
 
 function resultCard(){
-  const ch = match.ch, me = ch.me, them = ch.them, opp = ch.opponent ? esc(ch.opponent.username) : null;
-  const done = ch.status === "finished", open = ch.status === "pending" || ch.status === "active";
+  const ch = match.ch, me = ch.me, them = ch.them, opp = ch.opponent ? esc(ch.opponent.username) : null, race = ch.mode === "race";
+  const done = ch.status === "finished", open = ch.status === "pending" || ch.status === "active", kind = race ? "race" : "challenge";
   const mine = me.solved ? `You got it in ${guessWord(me.guess_count)}!` : me.gave_up ? "You gave up." :
     ch.max_guesses && me.guess_count >= ch.max_guesses ? "Out of guesses." : "Time ran out.";
   const title = done ? { win: "You win!", loss: "You lose!", draw: "It's a draw!" }[ch.result] || mine
-    : ch.status === "declined" ? (ch.role === "creator" ? `${opp} declined.` : "You declined this challenge.")
-    : ch.status === "expired" ? "This challenge expired."
-    : ch.status === "cancelled" ? "This challenge was cancelled." : mine;
+    : ch.status === "declined" ? (ch.role === "creator" ? `${opp} declined.` : `You declined this ${kind}.`)
+    : ch.status === "expired" ? `This ${kind} expired.`
+    : ch.status === "cancelled" ? (race ? "This race was called off." : "This challenge was cancelled.") : mine;
   const flair = !done ? "" : ch.result === "win" ? `<div class="banner-sfx" aria-hidden="true"><span>ゴゴ</span><span>ゴゴ</span></div>`
     : `<div class="stamp${ch.result === "draw" ? " alt" : ""}" aria-hidden="true">${ch.result === "draw" ? "Draw" : "Defeat"}</div>`;
   const who = secret ? `<div class="who">${img(secret.au, secret.user)}${img(secret.as, secret.stand)}
@@ -809,8 +911,11 @@ function resultCard(){
   const said = p => { const t = playerTime(p); return p.solved ? guessWord(p.guess_count) + (t != null ? " · " + fmtTime(t) : "") : p.gave_up ? "Gave up" : "Not solved"; };
   const line = (name, text, won) => `<div class="vs-line${won ? " won" : ""}"><b>${name}</b><span>${text}</span></div>`;
   const lines = opp && (done || open) ? `<div class="vs-lines">${line("You", me.finished_at ? said(me) : "Didn't play", done && ch.result === "win")}${
-    line(opp, done && them ? said(them) : !them ? "Hasn't accepted yet" : "Still playing", done && ch.result === "loss")}</div>` : "";
-  const note = done ? (ch.result === "draw" ? (me.solved ? "Same number of guesses in the same time!" : "Neither of you solved it.")
+    line(opp, done && them ? said(them) : !them ? "Hasn't accepted yet" : race ? "Still racing" : "Still playing", done && ch.result === "loss")}</div>` : "";
+  const note = race ? (done ? { win: "You solved it first.", loss: `${opp} solved it first.`, draw: "Nobody solved it." }[ch.result] || ""
+      : open ? `${opp} is still racing. If they solve it, they win; if not, it's a draw.`
+      : ch.status === "expired" ? "You weren't both in the lobby within 10 minutes." : "")
+    : done ? (ch.result === "draw" ? (me.solved ? "Same number of guesses in the same time!" : "Neither of you solved it.")
       : me.solved && them && them.solved ? (me.guess_count !== them.guess_count ? "Fewer guesses wins." : "Same number of guesses, so the faster time wins.") : "")
     : open ? (!opp ? "Nobody has taken your link yet. You'll see the result in Versus once someone plays it."
       : ch.status === "pending" ? `Waiting for ${opp} to accept. You'll see the result here and in Versus.`
@@ -826,25 +931,35 @@ function resultCard(){
 }
 
 function matchStats(){
-  const ch = match.ch, me = ch.me, opp = ch.opponent ? esc(ch.opponent.username) : null;
+  const ch = match.ch, me = ch.me, opp = ch.opponent ? esc(ch.opponent.username) : null, race = ch.mode === "race";
   const ms = me.started_at ? (me.finished_at ? playerTime(me) : serverNow() - when(me.started_at)) : 0;
-  return `<span>${opp ? `VS <b>${opp}</b>` : "<b>Link</b> challenge"}</span>`
+  return `<span>${race ? `<b>Live race</b>${opp ? ` vs <b>${opp}</b>` : ""}` : opp ? `VS <b>${opp}</b>` : "<b>Link</b> challenge"}</span>`
     + `<span>Guesses <b>${me.guess_count}</b>${ch.max_guesses ? ` / ${ch.max_guesses}` : ""}</span>`
     + `<span>Time <b>${fmtTime(ms || 0)}</b></span>`
     + (match.view === "them" ? `<span>Showing <b>${opp}</b>'s guesses</span>` : "")
-    + (!over && ch.them && ch.them.finished ? `<span><b>${opp}</b> has finished</span>` : "");
+    + (!over && !race && ch.them && ch.them.finished ? `<span><b>${opp}</b> has finished</span>` : "");
 }
 
-// the clock ticks while this player is playing
+// the clock ticks while this player is playing; in a race it also runs the countdown
 function tick(){
   clearInterval(clock);
-  if (!match || over || !match.ch.me.started_at) return;
+  renderCountdown(); // also clears the countdown away when it's done
+  if (!match || over) return;
+  const ch = match.ch, race = ch.mode === "race";
+  if (race ? !ch.starts_at : !ch.me.started_at) return;
+  const fast = race && serverNow() < when(ch.starts_at) + 1000; // the countdown, then "GO!" for a second
   clock = setInterval(() => {
-    if (!match) return clearInterval(clock);
+    const m = match;
+    if (!m) return clearInterval(clock);
+    if (fast){
+      renderCountdown();
+      if (!m.live && serverNow() >= when(m.ch.starts_at)){ showMatch(false); if (!$("q").disabled) $("q").focus(); return; } // GO
+      if (serverNow() >= when(m.ch.starts_at) + 1000) return tick();
+    }
     renderStats();
     // time ran out with the board open: fetch the final state once
-    if (!match.checkedExpiry && serverNow() >= when(match.ch.expires_at)){ match.checkedExpiry = true; resync(); }
-  }, 1000);
+    if (!m.checkedExpiry && serverNow() >= when(m.ch.expires_at)){ m.checkedExpiry = true; resync(); }
+  }, fast ? 100 : 1000);
 }
 
 async function resync(){
@@ -867,7 +982,7 @@ async function matchGuess(id){
   if (match !== m) return;
   if (r.error){
     // the board may be out of date (another tab, or time ran out): fetch the real state
-    if (["JJ006", "JJ007", "JJ008", "JJ013"].includes(r.error.code)) await resync();
+    if (["JJ006", "JJ007", "JJ008", "JJ013", "JJ014"].includes(r.error.code)) await resync();
     else { $("q").disabled = false; $("dd").disabled = false; $("giveBtn").disabled = false; $("q").focus(); }
     if (match === m) renderParts(r.error.text);
     return;
@@ -941,7 +1056,15 @@ $("banner").addEventListener("click", async e => {
   if (act === "start") return matchStart(b);
   if (act === "solo") return leaveMatch();
   if (act === "view"){ m.view = m.view === "me" ? "them" : "me"; return showMatch(true); }
+  if (act === "cancel" && !confirm("Call off this race?")) return;
   b.disabled = true;
+  if (act === "cancel"){
+    const r = await m.cancel();
+    if (match !== m) return;
+    if (r.error){ b.disabled = false; return renderParts(r.error.text); }
+    setMatchData(r.ch);
+    return showMatch(false);
+  }
   const said = act === "rematch" ? await m.rematch() : act === "copy" ? await m.copyLink() : null;
   if (match === m){ b.disabled = false; if (said) renderParts(said.text); }
 });

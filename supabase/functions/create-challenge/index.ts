@@ -1,6 +1,7 @@
 // Creates a challenge for a friend, for anyone with a link, or as a rematch.
 // The answer is picked here and stored where no player can read it.
-// Body: { parts: ["3","4"], maxGuesses: 9 | null, opponent: "<friend's id>" } or { ..., link: true } or { rematchOf: "<challenge id>" }
+// Body: { parts: ["3","4"], maxGuesses: 9 | null, mode: "async" | "race", opponent: "<friend's id>" } or { ..., link: true }
+//   or { rematchOf: "<challenge id>" } (a rematch keeps the parts, guess limit and kind of game)
 import { admin, CHARS, dbError, PARTS, pickSecret, reply, serve, UUID } from "../_shared/server.ts";
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -17,7 +18,7 @@ function linkCode() {
 }
 
 serve(async (player, body) => {
-  let parts: string[], maxGuesses: number | null, opponent: string | null = null, link = false;
+  let parts: string[], maxGuesses: number | null, opponent: string | null = null, link = false, mode = "async";
   const rematchOf = body.rematchOf ?? null;
 
   if (rematchOf !== null) {
@@ -37,6 +38,8 @@ serve(async (player, body) => {
     const m = body.maxGuesses ?? null;
     if (m !== null && m !== 9) return reply({ error: "bad guess limit" }, 400);
     maxGuesses = m;
+    mode = body.mode ?? "async";
+    if (mode !== "async" && mode !== "race") return reply({ error: "bad mode" }, 400);
     if (body.link === true) link = true;
     else if (typeof body.opponent === "string" && UUID.test(body.opponent)) opponent = body.opponent;
     else return reply({ error: "choose a friend or make a link" }, 400);
@@ -49,7 +52,7 @@ serve(async (player, body) => {
     const code = link ? linkCode() : null;
     const { data, error } = await admin.rpc("sv_create_challenge", {
       p_creator: player, p_opponent: opponent, p_link_code: code, p_parts: parts, p_max_guesses: maxGuesses,
-      p_char_id: secret.id, p_hint: hint, p_rematch_of: rematchOf,
+      p_char_id: secret.id, p_hint: hint, p_rematch_of: rematchOf, p_mode: mode,
     });
     if (error && error.code === "23505" && link) continue;
     if (error) return dbError(error);
