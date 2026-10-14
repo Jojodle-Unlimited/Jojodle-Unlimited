@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- JoJodle Unlimited icon (original design): a gold ゴ, the "menacing" sound effect, drawn as shapes so it looks the same everywhere -->
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff6b0"/>
+      <stop offset=".45" stop-color="#ffd23f"/>
+      <stop offset=".75" stop-color="#ff9a1f"/>
+      <stop offset="1" stop-color="#ff4fc8"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3a2858"/>
+      <stop offset="1" stop-color="#140d1f"/>
+    </linearGradient>
+  </defs>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="13" fill="url(#bg)" stroke="#0b0710" stroke-width="3"/>
+  <g transform="translate(4 3) skewX(-8)">
+    <!-- コ -->
+    <path d="M13 20H42V48H13" fill="none" stroke="#0b0710" stroke-width="14" stroke-linecap="square"/>
+    <path d="M13 20H42V48H13" fill="none" stroke="url(#gold)" stroke-width="7.5" stroke-linecap="square"/>
+    <!-- the two marks of ゴ -->
+    <path d="M45 7l4 7.5M53 5l4 7.5" stroke="#0b0710" stroke-width="8.5" stroke-linecap="round"/>
+    <path d="M45 7l4 7.5M53 5l4 7.5" stroke="#ffd23f" stroke-width="3.6" stroke-linecap="round"/>
+  </g>
+</svg>
